@@ -119,7 +119,7 @@ func (c *conn) flushBuf() (died bool) {
 func (c *conn) sendStep(nb <- chan uint8) (died, rupt bool) {
 	{
 		select {
-		case <- c.Die: return
+		case <- c.Die: died = true; return
 		case <- nb: rupt = true; return
 		case msg := <- c.cout: if c.sendMsg(msg) { died = true; return }
 		}
