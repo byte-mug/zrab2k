@@ -267,6 +267,7 @@ func (r *Response) Get() (Message,error) {
 		r.done()
 		return r.msg,nil
 	case <- r.cli.ctx.Done():
+		if r.cli.base.Err!=nil { return nil,r.cli.base.Err }
 		return nil,r.cli.ctx.Err()
 	case <- r.lctx.Done():
 		return nil,r.lctx.Err()
@@ -307,6 +308,12 @@ func (cli *client) init(b *Stream) *client{
 	cli.addq = make(chan *Response,128)
 	return cli
 }
+func (cli *client) nextSeq(pseq *uint64) {
+	for {
+		*pseq++
+		if _,ok := cli.reqm[*pseq]; !ok { return }
+	}
+}
 func (cli *client) dispatch() {
 	var cf context.CancelFunc
 	cli.ctx,cf = context.WithCancel(context.Background())
@@ -315,13 +322,13 @@ func (cli *client) dispatch() {
 	for {
 		select {
 		case <- cli.base.Die: return
-		case cli.seqs <- seq: seq++; continue
+		case cli.seqs <- seq: cli.nextSeq(&seq); continue
 		case req := <- cli.addq: cli.reqm[req.seq] = req; continue
 		default:
 		}
 		select {
 		case <- cli.base.Die: return
-		case cli.seqs <- seq: seq++; continue
+		case cli.seqs <- seq: cli.nextSeq(&seq); continue
 		case req := <- cli.addq: cli.reqm[req.seq] = req; continue
 		case msg := <- cli.base.In:
 			seq := msg.Seq()
