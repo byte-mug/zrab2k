@@ -25,6 +25,11 @@ package rpcmux
 
 import "sync"
 import "context"
+import "fmt"
+
+func debug(i ...interface{}) {
+	fmt.Println(i...)
+}
 
 type Message interface {
 	Seq() uint64
@@ -139,7 +144,7 @@ func (r *Request) Reply(m Message) (taken bool) {
 }
 
 func nRequest() interface{} {
-	return Request{sig:make(chan uint8,1)}
+	return &Request{sig:make(chan uint8,1)}
 }
 
 type server struct {
@@ -186,6 +191,7 @@ func (srv *server) dispatch() {
 			r.uncancel()
 			r.seq = seq
 			r.srv = srv
+			r.Msg = msg
 			if srv.base.IsCancel(msg) {
 				delete(srv.reqm,seq)
 			} else {
@@ -285,11 +291,12 @@ func (r *Response) Release() {
 }
 
 func nResponse() interface{} {
-	return Response{sig:make(chan uint8,1)}
+	return &Response{sig:make(chan uint8,1)}
 }
 
 type client struct{
 	ctx  context.Context
+	ready chan int
 	base *Stream
 	seqs chan uint64
 	reqm map[uint64]*Response
@@ -300,6 +307,13 @@ type client struct{
 func (cli *client) init(b *Stream) *client{
 	if b.InRelease==nil { b.InRelease = func(m Message) {} }
 	if b.Cancel==nil { b.Cancel = func() Message { return nil } }
+	
+	// XXX: This will be set, in the dispatch loop!
+	cli.ctx = nil
+	
+	// We need to signal, if cli.ctx is set.
+	cli.ready = make(chan int)
+	
 	cli.base = b
 	cli.seqs = make(chan uint64,16)
 	cli.reqm = make(map[uint64]*Response)
@@ -318,6 +332,9 @@ func (cli *client) dispatch() {
 	var cf context.CancelFunc
 	cli.ctx,cf = context.WithCancel(context.Background())
 	defer cf()
+	
+	// Unlock cli.ready, because cli.ctx is set to a valid context.
+	close(cli.ready)
 	seq := uint64(0)
 	for {
 		select {
@@ -374,6 +391,10 @@ If resp is not-nil, you should call resp.Release() after you are done.
 func (cli *client) Request(msg Message,ctx context.Context) (resp *Response,err error) {
 	if ctx==nil { panic("ctx == nil") }
 	var seq uint64
+	
+	// Wait for cli.ready, otherwise cli.ctx will be nil.
+	<- cli.ready
+	
 	select {
 	case <- cli.ctx.Done(): err = cli.ctx.Err() ; return 
 	case seq = <- cli.seqs:
@@ -391,7 +412,7 @@ func (cli *client) Request(msg Message,ctx context.Context) (resp *Response,err 
 	case <- cli.ctx.Done(): err = cli.ctx.Err() ; return 
 	case cli.addq <- req:
 	}
-	resp = resp
+	resp = req
 	return
 }
 
@@ -409,6 +430,7 @@ type Client interface {
 func (s *Stream) Client() (c Client) {
 	cli := new(client).init(s)
 	go cli.dispatch()
+	<- cli.ready
 	c = cli
 	return
 }

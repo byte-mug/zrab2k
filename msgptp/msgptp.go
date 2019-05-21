@@ -58,7 +58,9 @@ func (c *conn) init(conn io.ReadWriteCloser) {
 	c.Out = c.cout
 	c.Die = c.cdie
 	c.conn = conn
-	c.buf  = bufio.NewWriter(c.buf)
+	c.buf  = bufio.NewWriter(conn)
+	c.out  = msgpack.NewEncoder(c.buf)
+	c.in   = msgpack.NewDecoder(bufio.NewReader(conn))
 	c.InRelease = c.releaseIn
 }
 
