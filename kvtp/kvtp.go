@@ -27,6 +27,26 @@ import "sync"
 import "github.com/byte-mug/zrab2k/rpcmux"
 import "github.com/vmihailenco/msgpack"
 
+/*
+Commands.
+*/
+const (
+	CMD_Cancel = iota
+	CMD_Get
+	CMD_Put
+	
+	/*
+	Returns a Log of hops.
+	*/
+	CMD_Trace
+	
+	/*
+	Returns "ok" if the key is available, "not_found" otherwise.
+	*/
+	CMD_Touch
+)
+
+
 type Request struct{
 	seq uint64
 	Cmd uint8
