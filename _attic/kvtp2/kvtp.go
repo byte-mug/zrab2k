@@ -20,79 +20,112 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-/*
-Implements a Protocol for rpcmux, that implements a Key-Value-Store API.
-
-Just be warned. Unstable! API and protocol will change without notice.
-*/
+// Warning: Unexpected API changes will happen.
 package kvtp
 
 import "sync"
 import "github.com/byte-mug/zrab2k/rpcmux"
 import "github.com/vmihailenco/msgpack"
+import "time"
 
 /*
 Commands.
 */
 const (
 	CMD_Cancel = iota
+	
+	/* Coordinator Server. */
 	CMD_Get
-	CMD_GetNoRedirect
 	CMD_Put
-	CMD_PutNoRedirect
 	
-	/*
-	Returns a Log of hops.
-	*/
-	CMD_Trace
-	
-	/*
-	Returns "ok" if the key is available, "not_found" otherwise.
-	*/
-	CMD_Touch
-	
+	/* Replication Server. */
+	CMD_RsGet
+	CMD_RsPut
+	CMD_ReadRepair
+	CMD_HintedHandoff
 )
 
 /*
-Responses
+Response Codes.
 */
 const (
 	RESP_None = iota
-	RESP_Error
-	RESP_Value
-	RESP_NotFound
+	
+	RESP_WriteResponse
+	RESP_ReadFound
+	RESP_ReadNotFound
+	RESP_Exception
 )
+
+/*
+Consistency Levels.
+*/
+const (
+	CL_NONE = iota
+	CL_ONE
+	CL_TWO
+)
+
+type Entry struct{
+	Time time.Time
+	Val  []byte
+}
+var emptyEntry = new(Entry)
+func (r *Entry) DecodeMsgpack(m *msgpack.Decoder) error {
+	return m.DecodeMulti(&r.Time,&r.Val)
+}
+func (r *Entry) EncodeMsgpack(m *msgpack.Encoder) error {
+	return m.EncodeMulti(&r.Time,&r.Val)
+}
+
+func (r *Entry) put(t time.Time,v []byte) *Entry {
+	if r==nil { return &Entry{t,v} }
+	r.Time = t
+	r.Val = append(r.Val[:0],v...)
+	return r
+}
+func (r *Entry) get(t *time.Time,v *[]byte) {
+	if r==nil { r = emptyEntry }
+	*t = r.Time
+	*v = append((*v)[:0],r.Val...)
+}
 
 type Request struct{
 	seq uint64
 	Cmd uint8
-	ExpiresAt uint64 /* time.Unix(), 0 -> no expiration. */
+	Consistency uint8
+	Time time.Time
 	Key []byte
 	Val []byte
 }
 func (r *Request) Seq() uint64 { return r.seq }
 func (r *Request) SetSeq(u uint64) { r.seq = u }
 func (r *Request) DecodeMsgpack(m *msgpack.Decoder) error {
-	return m.DecodeMulti(&r.seq,&r.Cmd,&r.ExpiresAt,&r.Key,&r.Val)
+	return m.DecodeMulti(&r.seq,&r.Cmd,&r.Consistency,&r.Time,&r.Key,&r.Val)
 }
 func (r *Request) EncodeMsgpack(m *msgpack.Encoder) error {
-	return m.EncodeMulti(&r.seq,&r.Cmd,&r.ExpiresAt,&r.Key,&r.Val)
+	return m.EncodeMulti(&r.seq,&r.Cmd,&r.Consistency,&r.Time,&r.Key,&r.Val)
 }
+func (r *Request) GetEntry(e *Entry) *Entry { return e.put(r.Time,r.Val) }
+func (r *Request) FromEntry(e *Entry) { e.get(&r.Time,&r.Val) }
 
 type Response struct{
 	seq uint64
 	Code uint8
-	ExpiresAt uint64 /* time.Unix(), 0 -> no expiration. */
+	Time time.Time
 	Val []byte
 }
 func (r *Response) Seq() uint64 { return r.seq }
 func (r *Response) SetSeq(u uint64) { r.seq = u }
 func (r *Response) DecodeMsgpack(m *msgpack.Decoder) error {
-	return m.DecodeMulti(&r.seq,&r.Code,&r.ExpiresAt,&r.Val)
+	return m.DecodeMulti(&r.seq,&r.Code,&r.Time,&r.Val)
 }
 func (r *Response) EncodeMsgpack(m *msgpack.Encoder) error {
-	return m.EncodeMulti(&r.seq,&r.Code,&r.ExpiresAt,&r.Val)
+	return m.EncodeMulti(&r.seq,&r.Code,&r.Time,&r.Val)
 }
+func (r *Response) GetEntry(e *Entry) *Entry { return e.put(r.Time,r.Val) }
+func (r *Response) FromEntry(e *Entry) { e.get(&r.Time,&r.Val) }
+
 
 var _ rpcmux.Message = (*Request)(nil)
 var _ rpcmux.Message = (*Response)(nil)

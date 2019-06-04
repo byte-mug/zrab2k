@@ -404,6 +404,7 @@ func (cli *client) Request(msg Message,ctx context.Context) (resp *Response,err 
 	req.cli = cli
 	req.seq = seq
 	req.lctx = ctx
+	req.undone()
 	select {
 	case <- cli.ctx.Done(): err = cli.ctx.Err() ; return 
 	case cli.base.Out <- msg:
