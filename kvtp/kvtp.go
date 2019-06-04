@@ -109,9 +109,18 @@ func ReqCancel(p *sync.Pool) func() rpcmux.Message {
 	return func() rpcmux.Message {
 		r := p.Get().(*Request)
 		r.Cmd = 0
+		r.ExpiresAt = 0
 		r.Key = r.Key[:0]
 		r.Val = r.Val[:0]
 		return r
 	}
 }
-
+func RespDefault(p *sync.Pool) func() rpcmux.Message {
+	return func() rpcmux.Message {
+		r := p.Get().(*Response)
+		r.Code = 0
+		r.ExpiresAt = 0
+		r.Val = r.Val[:0]
+		return r
+	}
+}
