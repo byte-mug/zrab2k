@@ -48,6 +48,8 @@ type Stream struct {
 	// Support for canceling requests.
 	Cancel func() Message // generate a cancel-message.
 	IsCancel func(m Message) bool // detect a cancel-message.
+	
+	DefaultResponse func() Message // Generate default response message.
 }
 
 /*
@@ -87,7 +89,9 @@ func (r *Request) testcancel() bool {
 }
 func (r *Request) pollfunc() {
 	select {
-	case <- r.sig: r.lcf()
+	case <- r.sig:
+		r.lcf()
+		r.cancel()
 	case <- r.lctx.Done():
 	}
 }
@@ -141,6 +145,21 @@ func (r *Request) Reply(m Message) (taken bool) {
 		return true
 	}
 	return
+}
+
+/*
+This method works like Reply(), except, that it calls Stream.DefaultResponse to generate the Message.
+
+This is useful, if the server does not know, how to respond. This is the case with request-forwarding
+applications.
+*/
+func (r *Request) ReplyDefault() {
+	srv := r.srv
+	if srv==nil { return }
+	dr := srv.base.DefaultResponse
+	if dr==nil { return }
+	resp := dr()
+	r.Reply(resp)
 }
 
 func nRequest() interface{} {

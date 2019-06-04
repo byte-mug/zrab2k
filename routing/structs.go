@@ -22,45 +22,45 @@ SOFTWARE.
 
 
 
-package storage2
+package routing
 
 import (
-	"sync"
-	//"github.com/byte-mug/zrab2k/kvtp"
 	"github.com/byte-mug/zrab2k/rpcmux"
-	"github.com/byte-mug/zrab2k/routing"
 )
 
-type LayerPoint struct{
-	Die    <-chan struct{}
-	Source <- chan *rpcmux.Request
-	Next   chan <- *rpcmux.Request
-	Resps  *sync.Pool
-}
-
-type EndPoint struct{
-	Die    <-chan struct{}
-	Source <- chan *rpcmux.Request
-	Resps  *sync.Pool
-}
-
-type DiskSpace interface{
-	HasEnoughDiskSpace(key, value []byte) bool
-	AccountForDiskSpace(key, value []byte)
-}
-type infiniteDiskSpace struct{}
-func (i infiniteDiskSpace) HasEnoughDiskSpace(key, value []byte) bool { return true }
-func (i infiniteDiskSpace) AccountForDiskSpace(key, value []byte) {}
-func InfiniteDiskSpace() DiskSpace { return infiniteDiskSpace{} }
-
-type RedirectReader routing.RedirectReader
-type RedirectWriter routing.RedirectWriter
-
-/*
 type RedirectReader interface{
+	// Note: This method can also be used for Write requests.
+	// The only difference is, that it is explicitely targeted towards
+	// a particular node, backend, etc... you name it.
 	RedirectRead(other string,req *rpcmux.Request) bool
 }
+
 type RedirectWriter interface{
 	RedirectWrite(req *rpcmux.Request) (string,bool)
 }
-*/
+
+type NodeGoodness interface{
+	RequestGoodness(other string) uint64
+}
+
+func ForwardResponse(resp *rpcmux.Response, req *rpcmux.Request) {
+	defer req.Release()
+	msg,_ := resp.Get()
+	if msg!=nil {
+		req.Reply(msg)
+	} else {
+		req.ReplyDefault()
+	}
+}
+
+func Forward(req *rpcmux.Request, cli rpcmux.Client) error {
+	resp,err := cli.Request(req.Msg,req.Context())
+	if err!=nil { return err }
+	if resp==nil {
+		req.ReplyDefault()
+		req.Release()
+	}
+	go ForwardResponse(resp,req)
+	return nil
+}
+
